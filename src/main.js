@@ -58,7 +58,7 @@ app.innerHTML = `
     <div class="topbar-tools">
       <span class="privacy"><i></i><span id="privacy-label"></span></span>
       <nav class="language-switch" aria-label="Selecionar idioma">
-        <button type="button" data-language="pt" aria-label="Português" title="Português">🇵🇹</button>
+        <button type="button" data-language="pt" aria-label="Português" title="Português">🇧🇷</button>
         <button type="button" data-language="en" aria-label="English" title="English">🇺🇸</button>
       </nav>
     </div>
