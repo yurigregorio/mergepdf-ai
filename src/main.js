@@ -54,7 +54,7 @@ const app = document.querySelector('#app');
 
 app.innerHTML = `
   <header class="topbar">
-    <a class="brand" href="/" aria-label="JuntaPDF início"><span class="brand-mark">✳</span><span>junta<span class="brand-light">PDF</span></span></a>
+    <a class="brand" href="/" aria-label="JuntaPDF início"><span class="brand-mark">✳</span><span id="brand-name">junta<span class="brand-light">PDF</span></span></a>
     <div class="topbar-tools">
       <span class="privacy"><i></i><span id="privacy-label"></span></span>
       <nav class="language-switch" aria-label="Selecionar idioma">
@@ -130,6 +130,7 @@ function applyLanguage() {
   document.title = strings.pageTitle;
   document.querySelector('meta[name="description"]').content = strings.description;
   document.querySelector('.brand').setAttribute('aria-label', strings.brandLabel);
+  document.querySelector('#brand-name').innerHTML = language === 'pt' ? 'junta<span class="brand-light">PDF</span>' : 'merge<span class="brand-light">PDF</span>';
   document.querySelector('.language-switch').setAttribute('aria-label', strings.languageLabel);
   document.querySelectorAll('.language-switch button').forEach(button => {
     const selected = button.dataset.language === language;
