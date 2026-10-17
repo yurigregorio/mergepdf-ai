@@ -12,7 +12,7 @@
     "@vercel/analytics": "^2.0.0",
     "pdf-lib": "^1.17.1",
     "vite": "^6.4.1",
-"    "@lipoe/browser-qpdf": "^0.3.1"
+    "@lipoe/browser-qpdf": "^0.3.1"
   },
   "devDependencies": {}
 }
