@@ -272,6 +272,15 @@ async function loadPdf(file) {
   } catch (error) {
     if (!/encrypt/i.test(error.message || '')) throw error;
   }
+  // Some PDFs open without a password but still have owner restrictions.
+  // Try an empty password first so those files can be merged without prompting.
+  try {
+    const noPasswordResult = await decryptPdf(file, '');
+    if (!noPasswordResult.incorrect) return await PDFDocument.load(noPasswordResult.bytes);
+  } catch (error) {
+    if (!/could not decrypt/i.test(error.message || '')) throw error;
+  }
+
   let message = '';
   while (true) {
     const password = await askForPassword(file, message);
