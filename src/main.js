@@ -95,7 +95,7 @@ app.innerHTML = `
         <p id="password-filename" class="password-filename"></p>
         <form id="password-form">
           <label id="password-label" for="pdf-password"></label>
-          <input id="pdf-password" type="password" autocomplete="current-password" required>
+          <input id="pdf-password" type="password" autocomplete="current-password">
           <p id="password-error" class="password-error" role="alert" hidden></p>
           <div class="password-actions"><button id="password-cancel" class="secondary" type="button"></button><button id="password-submit" class="primary" type="submit"></button></div>
         </form>
@@ -274,11 +274,18 @@ async function loadPdf(file) {
   }
   // Some PDFs open without a password but still have owner restrictions.
   // Try an empty password first so those files can be merged without prompting.
+  let noPasswordResult = null;
   try {
-    const noPasswordResult = await decryptPdf(file, '');
-    if (!noPasswordResult.incorrect) return await PDFDocument.load(noPasswordResult.bytes);
-  } catch (error) {
-    if (!/could not decrypt/i.test(error.message || '')) throw error;
+    noPasswordResult = await decryptPdf(file, '');
+  } catch {
+    // A failed empty-password attempt should still allow the user to enter a password.
+  }
+  if (noPasswordResult && !noPasswordResult.incorrect) {
+    try {
+      return await PDFDocument.load(noPasswordResult.bytes);
+    } catch (error) {
+      if (!/encrypt/i.test(error.message || '')) throw error;
+    }
   }
 
   let message = '';
