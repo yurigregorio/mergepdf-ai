@@ -17,7 +17,7 @@ const translations = {
     dropTitle:'Arraste os PDFs para aqui', dropChoose:'ou <u>selecione no dispositivo</u>', dropHint:'Selecione dois ou mais ficheiros PDF',
     orderHint:'A ordem da lista será mantida no PDF final.', clear:'Remover todos', output:'Nome do ficheiro final',
     merge:'Juntar PDFs', preparing:'A preparar os ficheiros…', privacyNote:'Os documentos são processados no seu dispositivo e não são enviados para um servidor.',
-    passwordNote:'PDFs protegidos por palavra-passe não podem ser unidos nesta versão.',
+    passwordNote:'Se um PDF estiver protegido, pediremos a palavra-passe para o desbloquear antes de juntar os ficheiros.',
     howTitle:'É simples assim', steps:[['Adicione','Escolha dois ou mais documentos PDF.'],['Organize','Use as setas para definir a ordem das páginas.'],['Descarregue','Junte os documentos e guarde o novo PDF.']],
     footer:'Os seus documentos, sempre privados.', file:'ficheiro', files:'ficheiros', docs:'documentos', total:'no total',
     invalid:'Alguns ficheiros foram ignorados porque não são PDFs.', noFiles:'Ainda sem ficheiros',
@@ -39,7 +39,7 @@ const translations = {
     dropTitle:'Drop PDFs here', dropChoose:'or <u>choose files from your device</u>', dropHint:'Select two or more PDF files',
     orderHint:'The list order will be kept in the final PDF.', clear:'Remove all', output:'Final file name',
     merge:'Merge PDFs', preparing:'Preparing files…', privacyNote:'Your documents are processed on your device and are never uploaded to a server.',
-    passwordNote:'Password-protected PDFs cannot be merged in this version.',
+    passwordNote:'If a PDF is protected, we’ll ask for its password before merging.',
     howTitle:'It is that simple', steps:[['Add files','Choose two or more PDF documents.'],['Organize','Use the arrows to set the page order.'],['Download','Merge the documents and save your new PDF.']],
     footer:'Your documents stay private.', file:'file', files:'files', docs:'documents', total:'in total',
     invalid:'Some files were skipped because they are not PDFs.', noFiles:'No files yet',
@@ -272,16 +272,14 @@ async function loadPdf(file) {
   } catch (error) {
     if (!/encrypt/i.test(error.message || '')) throw error;
   }
+  let message = '';
   while (true) {
-    const password = await askForPassword(file);
+    const password = await askForPassword(file, message);
     if (password === null) throw new Error('PASSWORD_CANCELLED');
     const result = await decryptPdf(file, password);
     if (result.incorrect) {
-      const retry = await askForPassword(file, t('passwordIncorrect'));
-      if (retry === null) throw new Error('PASSWORD_CANCELLED');
-      const secondTry = await decryptPdf(file, retry);
-      if (secondTry.incorrect) continue;
-      return PDFDocument.load(secondTry.bytes);
+      message = t('passwordIncorrect');
+      continue;
     }
     return PDFDocument.load(result.bytes);
   }
