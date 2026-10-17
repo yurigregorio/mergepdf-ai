@@ -25,7 +25,7 @@ const translations = {
     reading:'A ler', creating:'A criar o PDF final…', ready:'PDF pronto!',
     success:'PDF criado com sucesso: {pages} páginas.',
     encrypted:'Um dos ficheiros parece estar protegido por palavra-passe. Remova a proteção e tente novamente.',
-    corrupt:'Não foi possível ler um dos PDFs. Confirme que os ficheiros não estão danificados ou protegidos por palavra-passe.',
+    corrupt:'Não foi possível processar “{file}”. Confirme se o PDF não está danificado e tente novamente.',
     langPT:'Português', langEN:'Inglês',
     passwordTitle:'Este PDF está protegido', passwordHelp:'Introduza a palavra-passe para desbloquear este ficheiro e continuar a junção.', passwordField:'Palavra-passe do PDF', passwordPlaceholder:'Introduza a palavra-passe', passwordCancel:'Cancelar', passwordContinue:'Desbloquear e continuar', passwordIncorrect:'Palavra-passe incorreta. Tente novamente.', passwordCancelled:'Junção cancelada. Nenhum ficheiro foi alterado.', passwordFailed:'Não foi possível desbloquear este PDF. Confirme a palavra-passe e tente novamente.'
   },
@@ -47,7 +47,7 @@ const translations = {
     reading:'Reading', creating:'Creating the final PDF…', ready:'PDF ready!',
     success:'PDF created successfully: {pages} pages.',
     encrypted:'One of the files appears to be password-protected. Remove the protection and try again.',
-    corrupt:'Could not read one of the PDFs. Check that the files are not damaged or password-protected.',
+    corrupt:'Could not process “{file}”. Check that the PDF is not damaged and try again.',
     langPT:'Portuguese', langEN:'English',
     passwordTitle:'This PDF is password-protected', passwordHelp:'Enter the password to unlock this file and continue merging.', passwordField:'PDF password', passwordPlaceholder:'Enter the password', passwordCancel:'Cancel', passwordContinue:'Unlock and continue', passwordIncorrect:'Incorrect password. Please try again.', passwordCancelled:'Merge cancelled. No files were changed.', passwordFailed:'Could not unlock this PDF. Check the password and try again.'
   }
@@ -334,10 +334,12 @@ mergeButton.addEventListener('click', async () => {
   successBox.hidden = true;
   progressWrap.hidden = false;
   mergeButton.disabled = true;
+  let currentFile = null;
   try {
     const merged = await PDFDocument.create();
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
+      currentFile = file;
       setProgress(`${t('reading')} ${file.name}…`, (index / files.length) * 90);
       const source = await loadPdf(file);
       const copiedPages = await merged.copyPages(source, source.getPageIndices());
@@ -362,7 +364,12 @@ mergeButton.addEventListener('click', async () => {
     successBox.hidden = false;
   } catch (error) {
     console.error(error);
-    showError(error.message === 'PASSWORD_CANCELLED' ? t('passwordCancelled') : (/encrypt|password/i.test(error.message || '') ? t('passwordFailed') : t('corrupt')));
+    const message = error.message === 'PASSWORD_CANCELLED'
+      ? t('passwordCancelled')
+      : (/encrypt|password/i.test(error.message || '')
+        ? t('passwordFailed')
+        : t('corrupt').replace('{file}', currentFile?.name || (language === 'pt' ? 'ficheiro desconhecido' : 'unknown file')));
+    showError(message);
   } finally {
     busy = false;
     mergeButton.disabled = files.length < 2;
