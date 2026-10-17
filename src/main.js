@@ -115,6 +115,7 @@ const passwordModal = document.querySelector('#password-modal');
 const passwordForm = document.querySelector('#password-form');
 const passwordInput = document.querySelector('#pdf-password');
 let qpdfPromise = null;
+let qpdfMessages = [];
 let passwordResolver = null;
 let files = [];
 let busy = false;
@@ -235,7 +236,7 @@ function closePasswordPrompt(password) {
 }
 async function getQpdf() {
   if (!qpdfPromise) {
-    qpdfPromise = createQpdf({ locateFile: () => qpdfWasmUrl, noInitialRun: true });
+    qpdfPromise = createQpdf({ locateFile: () => qpdfWasmUrl, noInitialRun: true, printErr: message => qpdfMessages.push(String(message)) });
   }
   return qpdfPromise;
 }
@@ -244,18 +245,17 @@ async function decryptPdf(file, password) {
   const suffix = crypto.randomUUID();
   const inputPath = `/input-${suffix}.pdf`;
   const outputPath = `/output-${suffix}.pdf`;
-  const errors = [];
+  qpdfMessages = [];
   qpdf.FS.writeFile(inputPath, new Uint8Array(await file.arrayBuffer()));
   try {
-    let exitCode;
     try {
-      exitCode = qpdf.callMain([`--password=${password}`, '--decrypt', inputPath, outputPath]);
+      qpdf.callMain([`--password=${password}`, '--decrypt', inputPath, outputPath]);
     } catch (error) {
-      errors.push(String(error?.message || error));
+      qpdfMessages.push(String(error?.message || error));
     }
-    if (exitCode !== 0 || !qpdf.FS.analyzePath(outputPath).exists) {
-      const detail = errors.join(' ');
-      if (/password|encrypt/i.test(detail)) return { incorrect: true };
+    if (!qpdf.FS.analyzePath(outputPath).exists) {
+      const detail = qpdfMessages.join(' ');
+      if (/password|encrypt|invalid/i.test(detail)) return { incorrect: true };
       throw new Error('QPDF could not decrypt this file.');
     }
     return { bytes: qpdf.FS.readFile(outputPath).slice() };
