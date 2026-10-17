@@ -1,4 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
+import createQpdf from '@neslinesli93/qpdf-wasm';
+import qpdfWasmUrl from '@neslinesli93/qpdf-wasm/dist/qpdf.wasm?url';
 import { inject } from '@vercel/analytics';
 import './style.css';
 
@@ -24,7 +26,8 @@ const translations = {
     success:'PDF criado com sucesso: {pages} páginas.',
     encrypted:'Um dos ficheiros parece estar protegido por palavra-passe. Remova a proteção e tente novamente.',
     corrupt:'Não foi possível ler um dos PDFs. Confirme que os ficheiros não estão danificados ou protegidos por palavra-passe.',
-    langPT:'Português', langEN:'Inglês'
+    langPT:'Português', langEN:'Inglês',
+    passwordTitle:'Este PDF está protegido', passwordHelp:'Introduza a palavra-passe para desbloquear este ficheiro e continuar a junção.', passwordField:'Palavra-passe do PDF', passwordPlaceholder:'Introduza a palavra-passe', passwordCancel:'Cancelar', passwordContinue:'Desbloquear e continuar', passwordIncorrect:'Palavra-passe incorreta. Tente novamente.', passwordCancelled:'Junção cancelada. Nenhum ficheiro foi alterado.', passwordFailed:'Não foi possível desbloquear este PDF. Confirme a palavra-passe e tente novamente.'
   },
   en: {
     pageTitle:'MergePDF — Merge your PDFs',
@@ -45,7 +48,8 @@ const translations = {
     success:'PDF created successfully: {pages} pages.',
     encrypted:'One of the files appears to be password-protected. Remove the protection and try again.',
     corrupt:'Could not read one of the PDFs. Check that the files are not damaged or password-protected.',
-    langPT:'Portuguese', langEN:'English'
+    langPT:'Portuguese', langEN:'English',
+    passwordTitle:'This PDF is password-protected', passwordHelp:'Enter the password to unlock this file and continue merging.', passwordField:'PDF password', passwordPlaceholder:'Enter the password', passwordCancel:'Cancel', passwordContinue:'Unlock and continue', passwordIncorrect:'Incorrect password. Please try again.', passwordCancelled:'Merge cancelled. No files were changed.', passwordFailed:'Could not unlock this PDF. Check the password and try again.'
   }
 };
 let language = localStorage.getItem('juntapdf-language') === 'en' ? 'en' : 'pt';
@@ -83,6 +87,20 @@ app.innerHTML = `
     </section>
     <section class="how"><div id="how-title" class="how-title"></div><div id="how-grid" class="how-grid"></div></section>
     <footer><span id="footer-note"></span><span>JuntaPDF</span></footer>
+    <div id="password-modal" class="modal" hidden>
+      <section class="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-title">
+        <div class="password-lock" aria-hidden="true">▣</div>
+        <h2 id="password-title"></h2>
+        <p id="password-help"></p>
+        <p id="password-filename" class="password-filename"></p>
+        <form id="password-form">
+          <label id="password-label" for="pdf-password"></label>
+          <input id="pdf-password" type="password" autocomplete="current-password" required>
+          <p id="password-error" class="password-error" role="alert" hidden></p>
+          <div class="password-actions"><button id="password-cancel" class="secondary" type="button"></button><button id="password-submit" class="primary" type="submit"></button></div>
+        </form>
+      </section>
+    </div>
   </main>`;
 
 const input = document.querySelector('#pdf-files');
@@ -93,6 +111,11 @@ const errorBox = document.querySelector('#error');
 const successBox = document.querySelector('#success');
 const clearButton = document.querySelector('#clear');
 const progressWrap = document.querySelector('#progress-wrap');
+const passwordModal = document.querySelector('#password-modal');
+const passwordForm = document.querySelector('#password-form');
+const passwordInput = document.querySelector('#pdf-password');
+let qpdfPromise = null;
+let passwordResolver = null;
 let files = [];
 let busy = false;
 let status = null;
@@ -156,6 +179,12 @@ function applyLanguage() {
   document.querySelector('#how-title').textContent = strings.howTitle;
   document.querySelector('#how-grid').innerHTML = strings.steps.map((step, index) => `<article><span>0${index + 1}</span><h3>${step[0]}</h3><p>${step[1]}</p></article>`).join('');
   document.querySelector('#footer-note').textContent = strings.footer;
+  document.querySelector('#password-title').textContent = strings.passwordTitle;
+  document.querySelector('#password-help').textContent = strings.passwordHelp;
+  document.querySelector('#password-label').textContent = strings.passwordField;
+  passwordInput.placeholder = strings.passwordPlaceholder;
+  document.querySelector('#password-cancel').textContent = strings.passwordCancel;
+  document.querySelector('#password-submit').textContent = strings.passwordContinue;
   if (['documentos-unidos','merged-documents'].includes(document.querySelector('#output-name').value)) {
     document.querySelector('#output-name').value = language === 'pt' ? 'documentos-unidos' : 'merged-documents';
   }
@@ -186,6 +215,77 @@ function setProgress(label, percent) {
   document.querySelector('#progress-percent').textContent = `${Math.round(percent)}%`;
   document.querySelector('#progress-bar').style.width = `${percent}%`;
 }
+function askForPassword(file, message = '') {
+  return new Promise(resolve => {
+    passwordResolver = resolve;
+    document.querySelector('#password-filename').textContent = file.name;
+    document.querySelector('#password-error').textContent = message;
+    document.querySelector('#password-error').hidden = !message;
+    passwordInput.value = '';
+    passwordModal.hidden = false;
+    requestAnimationFrame(() => passwordInput.focus());
+  });
+}
+function closePasswordPrompt(password) {
+  if (!passwordResolver) return;
+  const resolve = passwordResolver;
+  passwordResolver = null;
+  passwordModal.hidden = true;
+  resolve(password);
+}
+async function getQpdf() {
+  if (!qpdfPromise) {
+    qpdfPromise = createQpdf({ locateFile: () => qpdfWasmUrl, noInitialRun: true });
+  }
+  return qpdfPromise;
+}
+async function decryptPdf(file, password) {
+  const qpdf = await getQpdf();
+  const suffix = crypto.randomUUID();
+  const inputPath = `/input-${suffix}.pdf`;
+  const outputPath = `/output-${suffix}.pdf`;
+  const errors = [];
+  qpdf.FS.writeFile(inputPath, new Uint8Array(await file.arrayBuffer()));
+  try {
+    let exitCode;
+    try {
+      exitCode = qpdf.callMain([`--password=${password}`, '--decrypt', inputPath, outputPath]);
+    } catch (error) {
+      errors.push(String(error?.message || error));
+    }
+    if (exitCode !== 0 || !qpdf.FS.analyzePath(outputPath).exists) {
+      const detail = errors.join(' ');
+      if (/password|encrypt/i.test(detail)) return { incorrect: true };
+      throw new Error('QPDF could not decrypt this file.');
+    }
+    return { bytes: qpdf.FS.readFile(outputPath).slice() };
+  } finally {
+    for (const path of [inputPath, outputPath]) {
+      try { if (qpdf.FS.analyzePath(path).exists) qpdf.FS.unlink(path); } catch { /* Clean up best-effort. */ }
+    }
+  }
+}
+async function loadPdf(file) {
+  const original = await file.arrayBuffer();
+  try {
+    return await PDFDocument.load(original);
+  } catch (error) {
+    if (!/encrypt/i.test(error.message || '')) throw error;
+  }
+  while (true) {
+    const password = await askForPassword(file);
+    if (password === null) throw new Error('PASSWORD_CANCELLED');
+    const result = await decryptPdf(file, password);
+    if (result.incorrect) {
+      const retry = await askForPassword(file, t('passwordIncorrect'));
+      if (retry === null) throw new Error('PASSWORD_CANCELLED');
+      const secondTry = await decryptPdf(file, retry);
+      if (secondTry.incorrect) continue;
+      return PDFDocument.load(secondTry.bytes);
+    }
+    return PDFDocument.load(result.bytes);
+  }
+}
 
 app.addEventListener('click', event => {
   const languageButton = event.target.closest('[data-language]');
@@ -209,6 +309,8 @@ for (const eventName of ['dragleave','drop']) drop.addEventListener(eventName, e
 drop.addEventListener('drop', event => addFiles(event.dataTransfer.files));
 drop.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); input.click(); } });
 clearButton.addEventListener('click', () => { files = []; status = null; errorBox.hidden = true; successBox.hidden = true; renderFiles(); });
+passwordForm.addEventListener('submit', event => { event.preventDefault(); closePasswordPrompt(passwordInput.value); });
+document.querySelector('#password-cancel').addEventListener('click', () => closePasswordPrompt(null));
 
 mergeButton.addEventListener('click', async () => {
   if (busy || files.length < 2) return;
@@ -223,7 +325,7 @@ mergeButton.addEventListener('click', async () => {
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
       setProgress(`${t('reading')} ${file.name}…`, (index / files.length) * 90);
-      const source = await PDFDocument.load(await file.arrayBuffer());
+      const source = await loadPdf(file);
       const copiedPages = await merged.copyPages(source, source.getPageIndices());
       copiedPages.forEach(page => merged.addPage(page));
     }
@@ -246,7 +348,7 @@ mergeButton.addEventListener('click', async () => {
     successBox.hidden = false;
   } catch (error) {
     console.error(error);
-    showError(/encrypt|password/i.test(error.message || '') ? t('encrypted') : t('corrupt'));
+    showError(error.message === 'PASSWORD_CANCELLED' ? t('passwordCancelled') : (/encrypt|password/i.test(error.message || '') ? t('passwordFailed') : t('corrupt')));
   } finally {
     busy = false;
     mergeButton.disabled = files.length < 2;
