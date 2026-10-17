@@ -1,6 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
-import createQpdf from '@neslinesli93/qpdf-wasm';
-import qpdfWasmUrl from '@neslinesli93/qpdf-wasm/dist/qpdf.wasm?url';
+import { createQpdfImageStreams } from '@lipoe/browser-qpdf';
+import qpdfWasmUrl from '@lipoe/browser-qpdf/qpdf-image-stream.wasm?url';
 import { inject } from '@vercel/analytics';
 import './style.css';
 
@@ -115,7 +115,6 @@ const passwordModal = document.querySelector('#password-modal');
 const passwordForm = document.querySelector('#password-form');
 const passwordInput = document.querySelector('#pdf-password');
 let qpdfPromise = null;
-let qpdfMessages = [];
 let passwordResolver = null;
 let files = [];
 let busy = false;
@@ -236,33 +235,26 @@ function closePasswordPrompt(password) {
 }
 async function getQpdf() {
   if (!qpdfPromise) {
-    qpdfPromise = createQpdf({ locateFile: () => qpdfWasmUrl, noInitialRun: true, printErr: message => qpdfMessages.push(String(message)) });
+    qpdfPromise = createQpdfImageStreams({
+      locateFile: name => name.endsWith('.wasm') ? qpdfWasmUrl : name
+    });
   }
   return qpdfPromise;
 }
 async function decryptPdf(file, password) {
   const qpdf = await getQpdf();
-  const suffix = crypto.randomUUID();
-  const inputPath = `/input-${suffix}.pdf`;
-  const outputPath = `/output-${suffix}.pdf`;
-  qpdfMessages = [];
-  qpdf.FS.writeFile(inputPath, new Uint8Array(await file.arrayBuffer()));
+  const input = new Uint8Array(await file.arrayBuffer());
+  const loaded = password === '' ? qpdf.loadPdf(input) : qpdf.loadPdfWithPassword(input, password);
+  if (!loaded.ok) {
+    if (loaded.code === 'PASSWORD_REQUIRED' || loaded.code === 'INVALID_PASSWORD') return { incorrect: true };
+    throw new Error(loaded.error || 'Could not open this PDF.');
+  }
   try {
-    try {
-      qpdf.callMain([`--password=${password}`, '--decrypt', inputPath, outputPath]);
-    } catch (error) {
-      qpdfMessages.push(String(error?.message || error));
-    }
-    if (!qpdf.FS.analyzePath(outputPath).exists) {
-      const detail = qpdfMessages.join(' ');
-      if (/password|encrypt|invalid/i.test(detail)) return { incorrect: true };
-      throw new Error('QPDF could not decrypt this file.');
-    }
-    return { bytes: qpdf.FS.readFile(outputPath).slice() };
+    const result = loaded.value.writePdf({ preserveEncryption: false });
+    if (!result.ok) throw new Error(result.error || 'Could not remove PDF encryption.');
+    return { bytes: result.value };
   } finally {
-    for (const path of [inputPath, outputPath]) {
-      try { if (qpdf.FS.analyzePath(path).exists) qpdf.FS.unlink(path); } catch { /* Clean up best-effort. */ }
-    }
+    loaded.value.close();
   }
 }
 async function loadPdf(file) {
@@ -274,19 +266,8 @@ async function loadPdf(file) {
   }
   // Some PDFs open without a password but still have owner restrictions.
   // Try an empty password first so those files can be merged without prompting.
-  let noPasswordResult = null;
-  try {
-    noPasswordResult = await decryptPdf(file, '');
-  } catch {
-    // A failed empty-password attempt should still allow the user to enter a password.
-  }
-  if (noPasswordResult && !noPasswordResult.incorrect) {
-    try {
-      return await PDFDocument.load(noPasswordResult.bytes);
-    } catch (error) {
-      if (!/encrypt/i.test(error.message || '')) throw error;
-    }
-  }
+  const noPasswordResult = await decryptPdf(file, '');
+  if (!noPasswordResult.incorrect) return PDFDocument.load(noPasswordResult.bytes);
 
   let message = '';
   while (true) {
